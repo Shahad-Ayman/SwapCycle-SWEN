@@ -1,0 +1,749 @@
+openapi: 3.0.3
+info:
+  title: SwapCycle API
+  version: 0.1.0
+  description: |
+    JSON REST API for SwapCycle. This file is the source of truth for the API contract.
+
+    Sprint 1 covers accounts, book listings (catalog), wish lists and search.
+    Exchange, matching, handover, disputes, messaging, notifications and reviews
+    are added by later sprints.
+
+    Conventions:
+    - Success bodies are `{ "data": ... }`. Failures are `{ "error": { "code", "message" } }`.
+    - Authentication uses a short-lived signed token in the `sc_session` cookie
+      (HttpOnly, Secure, SameSite=Lax). Clients must send credentials (`credentials: 'include'`).
+    - List endpoints are paginated with `page` (1-based) and `pageSize` (max 50).
+servers:
+  - url: /api
+
+tags:
+  - name: auth
+  - name: users
+  - name: books
+  - name: wishlist
+  - name: search
+
+paths:
+  /auth/register:
+    post:
+      tags: [auth]
+      summary: Create a reader account and start a session
+      description: Rate-limited per client IP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterRequest' }
+      responses:
+        '201':
+          description: Account created. Sets the `sc_session` cookie.
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/CurrentUser' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '409':
+          description: These details cannot be used to register (generic message).
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Log in with email and password
+      description: |
+        Rate-limited per client IP and per email. Every failure returns the same
+        message, "Invalid email or password", so accounts cannot be enumerated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: Logged in. Sets the `sc_session` cookie.
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/CurrentUser' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: End the session (clears the cookie)
+      responses:
+        '204': { description: Logged out. }
+
+  /auth/me:
+    get:
+      tags: [auth]
+      summary: The logged-in user's own account
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: Current user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/CurrentUser' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/password-reset/request:
+    post:
+      tags: [auth]
+      summary: Ask for a password-reset link
+      description: |
+        Always answers 202 whether or not the email exists. Rate-limited.
+        The single-use token expires after 30 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties: { email: { type: string, format: email, maxLength: 254 } }
+      responses:
+        '202': { description: If the account exists, a reset link is on its way. }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /auth/password-reset/confirm:
+    post:
+      tags: [auth]
+      summary: Set a new password using a reset token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token: { type: string, minLength: 20, maxLength: 128 }
+                newPassword: { type: string, minLength: 8, maxLength: 128 }
+      responses:
+        '204': { description: Password changed. The token can no longer be used. }
+        '400':
+          description: Invalid input, or the token is invalid, used or expired.
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /meeting-areas:
+    get:
+      tags: [users]
+      summary: General campus areas a reader can choose
+      responses:
+        '200':
+          description: All meeting areas.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/MeetingArea' } }
+
+  /users/me:
+    patch:
+      tags: [users]
+      summary: Update your own profile, interests and privacy settings
+      security: [{ sessionCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileUpdate' }
+      responses:
+        '200':
+          description: Updated user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/CurrentUser' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /users/{userId}:
+    get:
+      tags: [users]
+      summary: Another reader's public profile (respects their privacy settings)
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Public profile.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/PublicProfile' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /users/me/books:
+    get:
+      tags: [books]
+      summary: Your own listings (every status except deleted)
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Your listings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/BookListingPage' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /books:
+    post:
+      tags: [books]
+      summary: List a physical copy of a book
+      description: |
+        Finds or creates the matching BookDescription (title, author, edition,
+        language, genre), then creates a BookCopy owned by the caller with status AVAILABLE.
+        When `exchangeAreaId` is omitted, the owner's meeting area is used.
+      security: [{ sessionCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookInput' }
+      responses:
+        '201':
+          description: Listing created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/BookListing' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /books/{copyId}:
+    parameters:
+      - $ref: '#/components/parameters/CopyId'
+    get:
+      tags: [books]
+      summary: A public listing
+      description: |
+        Public. Withdrawn, transferred and deleted copies are 404 for everyone
+        except their owner, who sees them in GET /users/me/books.
+      responses:
+        '200':
+          description: Listing.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/BookListing' } }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [books]
+      summary: Edit your own listing
+      description: Only the owner, and only while the copy is AVAILABLE or WITHDRAWN.
+      security: [{ sessionCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BookInput' }
+      responses:
+        '200':
+          description: Updated listing.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/BookListing' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+    delete:
+      tags: [books]
+      summary: Delete your own listing (soft delete, keeps history)
+      description: Only the owner, and only while the copy is AVAILABLE or WITHDRAWN.
+      security: [{ sessionCookie: [] }]
+      responses:
+        '204': { description: Deleted. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /books/{copyId}/withdraw:
+    post:
+      tags: [books]
+      summary: Withdraw your AVAILABLE listing from exchange
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CopyId'
+      responses:
+        '200':
+          description: Withdrawn listing.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/BookListing' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /books/{copyId}/relist:
+    post:
+      tags: [books]
+      summary: Make your WITHDRAWN listing AVAILABLE again
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CopyId'
+      responses:
+        '200':
+          description: Available listing.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/BookListing' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /books/{copyId}/photos:
+    post:
+      tags: [books]
+      summary: Add a photo to your listing
+      description: |
+        One JPEG or PNG per request, at most 5 MB, at most 5 photos per copy.
+        The type is checked from the file's signature (magic bytes), not its
+        name or Content-Type. Files are stored under random UUID names outside
+        any executable path.
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CopyId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [photo]
+              properties:
+                photo: { type: string, format: binary }
+      responses:
+        '201':
+          description: Photo added.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/BookPhoto' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413':
+          description: File larger than 5 MB.
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+        '415':
+          description: Not a JPEG or PNG.
+          content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+
+  /books/{copyId}/photos/{photoId}:
+    delete:
+      tags: [books]
+      summary: Remove a photo from your listing
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CopyId'
+        - $ref: '#/components/parameters/PhotoId'
+      responses:
+        '204': { description: Removed. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /photos/{photoId}:
+    get:
+      tags: [books]
+      summary: Image bytes of a listing photo
+      description: Served with `X-Content-Type-Options nosniff` and the stored content type.
+      parameters:
+        - $ref: '#/components/parameters/PhotoId'
+      responses:
+        '200':
+          description: The image.
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /wishlist:
+    get:
+      tags: [wishlist]
+      summary: Your wish list
+      security: [{ sessionCookie: [] }]
+      responses:
+        '200':
+          description: Your wish list entries, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/WishItem' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [wishlist]
+      summary: Add a title or a broader interest to your wish list
+      description: At most 100 entries per reader. Duplicate entries are rejected with 409.
+      security: [{ sessionCookie: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WishItemInput' }
+      responses:
+        '201':
+          description: Entry added.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/WishItem' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /wishlist/{wishItemId}:
+    delete:
+      tags: [wishlist]
+      summary: Remove one of your wish list entries
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - name: wishItemId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Removed. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /search/books:
+    get:
+      tags: [search]
+      summary: Search available listings
+      description: |
+        Public. Only AVAILABLE copies are returned, newest first. `q` matches
+        title or author; the other filters narrow the result.
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: title, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: author, in: query, schema: { type: string, maxLength: 100 } }
+        - { name: genre, in: query, schema: { $ref: '#/components/schemas/Genre' } }
+        - { name: language, in: query, schema: { $ref: '#/components/schemas/LanguageCode' } }
+        - { name: minCondition, in: query, schema: { $ref: '#/components/schemas/BookCondition' } }
+        - { name: areaId, in: query, schema: { type: integer, minimum: 1 } }
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Matching listings.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/BookListingPage' } }
+        '400': { $ref: '#/components/responses/ValidationFailed' }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: sc_session
+
+  parameters:
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    CopyId:
+      name: copyId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PhotoId:
+      name: photoId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+
+  responses:
+    ValidationFailed:
+      description: Input failed validation (code VALIDATION_FAILED).
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    Unauthorized:
+      description: Not logged in, or bad credentials (code UNAUTHORIZED).
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    NotFound:
+      description: Does not exist or is not visible to you (code NOT_FOUND).
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    Conflict:
+      description: Not allowed in the resource's current state (code CONFLICT).
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    RateLimited:
+      description: Too many attempts (code RATE_LIMITED). See Retry-After.
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [VALIDATION_FAILED, UNAUTHORIZED, FORBIDDEN, NOT_FOUND, CONFLICT,
+                     RATE_LIMITED, PAYLOAD_TOO_LARGE, UNSUPPORTED_MEDIA_TYPE, INTERNAL]
+            message: { type: string }
+
+    Role:
+      type: string
+      enum: [READER, MODERATOR]
+    InterestCategory:
+      type: string
+      enum: [FICTION, NON_FICTION, SCIENCE, TECHNOLOGY, ART_DESIGN, SELF_HELP, BUSINESS, OTHER]
+    Genre:
+      type: string
+      enum: [FICTION, MYSTERY, SCIENCE_FICTION, FANTASY, ROMANCE, THRILLER, BIOGRAPHY, HISTORY,
+             TRAVEL, SCIENCE, TECHNOLOGY, ART_DESIGN, SELF_HELP, BUSINESS, POETRY, OTHER]
+    BookCondition:
+      type: string
+      description: Ordered best to worst.
+      enum: [NEW, LIKE_NEW, GOOD, FAIR, POOR]
+    CopyStatus:
+      type: string
+      enum: [AVAILABLE, RESERVED, TRANSFERRED, WITHDRAWN]
+    LanguageCode:
+      type: string
+      description: ISO 639-1, lower case.
+      pattern: '^[a-z]{2}$'
+
+    MeetingArea:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: integer }
+        name: { type: string }
+
+    PrivacySettings:
+      type: object
+      required: [showMeetingArea, showInterests]
+      properties:
+        showMeetingArea: { type: boolean }
+        showInterests: { type: boolean }
+
+    RegisterRequest:
+      type: object
+      required: [email, password, displayName]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 8, maxLength: 128 }
+        displayName: { type: string, minLength: 2, maxLength: 40 }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, maxLength: 254 }
+        password: { type: string, maxLength: 128 }
+
+    CurrentUser:
+      description: Your own account. Only ever returned to you.
+      type: object
+      required: [id, email, displayName, role, meetingArea, interests, privacy, onboardingCompleted]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        displayName: { type: string }
+        role: { $ref: '#/components/schemas/Role' }
+        meetingArea:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/MeetingArea' }]
+        interests: { type: array, items: { $ref: '#/components/schemas/InterestCategory' } }
+        privacy: { $ref: '#/components/schemas/PrivacySettings' }
+        onboardingCompleted: { type: boolean }
+
+    PublicProfile:
+      description: What other readers see. Hidden fields are null.
+      type: object
+      required: [id, displayName, meetingArea, interests, memberSince]
+      properties:
+        id: { type: string, format: uuid }
+        displayName: { type: string }
+        meetingArea:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/MeetingArea' }]
+        interests:
+          nullable: true
+          type: array
+          items: { $ref: '#/components/schemas/InterestCategory' }
+        memberSince: { type: string, format: date-time }
+
+    ProfileUpdate:
+      description: Every field is optional; only the ones sent are changed.
+      type: object
+      properties:
+        displayName: { type: string, minLength: 2, maxLength: 40 }
+        meetingAreaId: { type: integer, nullable: true }
+        interests:
+          type: array
+          maxItems: 8
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/InterestCategory' }
+        privacy: { $ref: '#/components/schemas/PrivacySettings' }
+        onboardingCompleted: { type: boolean }
+
+    BookInput:
+      type: object
+      required: [title, author, language, genre, condition]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        author: { type: string, minLength: 1, maxLength: 120 }
+        edition: { type: string, maxLength: 60, default: '' }
+        language: { $ref: '#/components/schemas/LanguageCode' }
+        genre: { $ref: '#/components/schemas/Genre' }
+        condition: { $ref: '#/components/schemas/BookCondition' }
+        conditionNotes: { type: string, maxLength: 500, default: '' }
+        exchangeAreaId: { type: integer, nullable: true }
+
+    BookPhoto:
+      type: object
+      required: [id, url]
+      properties:
+        id: { type: string, format: uuid }
+        url: { type: string, example: /api/photos/0b9c3c1e-9d5a-4a53-9c1f-2f0f6f3b7a10 }
+
+    OwnerSummary:
+      description: Only the display name of the owner is public.
+      type: object
+      required: [id, displayName]
+      properties:
+        id: { type: string, format: uuid }
+        displayName: { type: string }
+
+    BookListing:
+      type: object
+      required: [id, title, author, edition, language, genre, condition, conditionNotes,
+                 status, exchangeArea, owner, photos, createdAt]
+      properties:
+        id: { type: string, format: uuid, description: The BookCopy id. }
+        title: { type: string }
+        author: { type: string }
+        edition: { type: string }
+        language: { $ref: '#/components/schemas/LanguageCode' }
+        genre: { $ref: '#/components/schemas/Genre' }
+        condition: { $ref: '#/components/schemas/BookCondition' }
+        conditionNotes: { type: string }
+        status: { $ref: '#/components/schemas/CopyStatus' }
+        exchangeArea:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/MeetingArea' }]
+        owner: { $ref: '#/components/schemas/OwnerSummary' }
+        photos: { type: array, items: { $ref: '#/components/schemas/BookPhoto' } }
+        createdAt: { type: string, format: date-time }
+
+    BookListingPage:
+      type: object
+      required: [items, page, pageSize, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/BookListing' } }
+        page: { type: integer }
+        pageSize: { type: integer }
+        total: { type: integer }
+
+    WishItemKind:
+      type: string
+      enum: [TITLE, INTEREST]
+
+    WishItemInput:
+      type: object
+      required: [kind]
+      description: |
+        TITLE needs `title` (author optional). INTEREST needs `genre` and must not have `title`.
+      properties:
+        kind: { $ref: '#/components/schemas/WishItemKind' }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        author: { type: string, minLength: 1, maxLength: 120 }
+        genre: { $ref: '#/components/schemas/Genre' }
+        language:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/LanguageCode' }]
+        minCondition:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/BookCondition' }]
+
+    WishItem:
+      type: object
+      required: [id, kind, title, author, genre, language, minCondition, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { $ref: '#/components/schemas/WishItemKind' }
+        title: { type: string, nullable: true }
+        author: { type: string, nullable: true }
+        genre:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/Genre' }]
+        language: { type: string, nullable: true }
+        minCondition:
+          nullable: true
+          allOf: [{ $ref: '#/components/schemas/BookCondition' }]
+        createdAt: { type: string, format: date-time }
