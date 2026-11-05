@@ -90,13 +90,35 @@ cd frontend && npm install && npm run dev   # http://localhost:5173, /api proxie
 ## How to test
 
 ```bash
-docker compose run --rm backend ./build/swapcycle_tests   # GoogleTest
-cd frontend && npm test                                    # Vitest
-cd frontend && npm audit                                   # 0 vulnerabilities at time of writing
+docker build backend -f backend/DockerFile --target build   # compiles and runs GoogleTest
+cd frontend && npm test                                      # Vitest
+cd frontend && npm run check                                 # typecheck + tests + build
+cd frontend && npm audit                                     # 0 vulnerabilities at time of writing
 ```
 
 The frontend tests mock the teammate-owned modules, so `npm test` already passes.
 `npm run typecheck`/`build` and the backend build need the interfaces above.
+
+## CI (`.github/workflows/ci.yml`)
+
+Runs on every PR and on pushes to `main`:
+
+- **Repository hygiene:** fails if an `.env` file, a private key or uploaded files are committed.
+- **Migrations:** applies every migration (and the dev seed) to PostgreSQL 16.
+- **Backend:** builds the Docker image with `-Werror` and runs GoogleTest.
+- **Frontend:** `npm ci`, `npm audit --audit-level=high`, Vitest, typecheck and production build.
+
+The backend build and the frontend typecheck/build are skipped with a warning
+until `common/ApiError`, `middleware/AuthFilter`, `api/`, `types/` and
+`components/ui` are implemented; they start running automatically after that.
+
+## Backend runtime
+
+`backend/config.json` holds the non-secret Drogon settings (threads, 6 MB body
+limit, logging, no sessions, no server header, and no static files served from
+disk). Secrets and per-environment values come from the environment. The image
+is multi-stage: build + tests in the pinned Drogon image, then only the binary on
+Ubuntu 22.04, running as an unprivileged user.
 
 ## Notes for the team
 
