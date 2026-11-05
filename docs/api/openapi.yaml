@@ -218,6 +218,25 @@ paths:
                 properties: { data: { $ref: '#/components/schemas/BookListingPage' } }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
+  /users/me/books/{copyId}:
+    get:
+      tags: [books]
+      summary: One of your own listings, in any status (for editing)
+      security: [{ sessionCookie: [] }]
+      parameters:
+        - $ref: '#/components/parameters/CopyId'
+      responses:
+        '200':
+          description: Your listing.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties: { data: { $ref: '#/components/schemas/BookListing' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /books:
     post:
       tags: [books]

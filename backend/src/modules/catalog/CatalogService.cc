@@ -145,6 +145,11 @@ drogon::Task<ListingView> CatalogService::getPublicListing(std::string copyId) {
     co_return co_await toView(std::move(*copy));
 }
 
+drogon::Task<ListingView> CatalogService::getOwnListing(std::string ownerId, std::string copyId) {
+    auto copy = co_await ownedCopy(ownerId, copyId);
+    co_return co_await toView(std::move(copy));
+}
+
 drogon::Task<ListingView> CatalogService::updateListing(std::string ownerId, std::string copyId, BookInput input) {
     const auto existing = co_await ownedCopy(ownerId, copyId);
     if (!isEditable(existing)) throw ApiError(ErrorCode::Conflict, kLockedMessage);

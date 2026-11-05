@@ -30,6 +30,8 @@ public:
     drogon::Task<ListingView> createListing(std::string ownerId, BookInput input);
     // Public view: only AVAILABLE or RESERVED copies; anything else is NOT_FOUND.
     drogon::Task<ListingView> getPublicListing(std::string copyId);
+    // The owner's view of their own copy in any status (e.g. WITHDRAWN).
+    drogon::Task<ListingView> getOwnListing(std::string ownerId, std::string copyId);
     drogon::Task<ListingView> updateListing(std::string ownerId, std::string copyId, BookInput input);
     drogon::Task<ListingView> withdraw(std::string ownerId, std::string copyId);
     drogon::Task<ListingView> relist(std::string ownerId, std::string copyId);

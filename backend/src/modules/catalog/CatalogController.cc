@@ -60,6 +60,15 @@ drogon::Task<HttpResponsePtr> CatalogController::listMine(HttpRequestPtr req) {
     }
 }
 
+drogon::Task<HttpResponsePtr> CatalogController::getMine(HttpRequestPtr req, std::string copyId) {
+    try {
+        const auto listing = co_await service_->getOwnListing(currentUserId(req), std::move(copyId));
+        co_return common::dataResponse(toJson(listing));
+    } catch (const std::exception& error) {
+        co_return common::errorResponse(error);
+    }
+}
+
 drogon::Task<HttpResponsePtr> CatalogController::get(HttpRequestPtr /*req*/, std::string copyId) {
     try {
         const auto listing = co_await service_->getPublicListing(std::move(copyId));

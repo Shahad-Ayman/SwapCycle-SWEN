@@ -114,6 +114,13 @@ TEST_F(CatalogServiceTest, WithdrawAndRelist) {
     EXPECT_EQ(drogon::sync_wait(service->getPublicListing(id)).copy.id, id);
 }
 
+TEST_F(CatalogServiceTest, OwnerCanOpenOwnWithdrawnListingOthersCannot) {
+    const auto id = createSaraListing();
+    drogon::sync_wait(service->withdraw(sara, id));
+    EXPECT_EQ(drogon::sync_wait(service->getOwnListing(sara, id)).copy.status, "WITHDRAWN");
+    expectApiError(service->getOwnListing(ali, id), ErrorCode::NotFound);
+}
+
 TEST_F(CatalogServiceTest, DeletedListingDisappears) {
     const auto id = createSaraListing();
     drogon::sync_wait(service->deleteListing(sara, id));

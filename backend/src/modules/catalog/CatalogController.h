@@ -22,6 +22,8 @@ public:
     METHOD_LIST_BEGIN
     ADD_METHOD_TO(CatalogController::create, "/api/books", drogon::Post, "AuthFilter");
     ADD_METHOD_TO(CatalogController::listMine, "/api/users/me/books", drogon::Get, "AuthFilter");
+    ADD_METHOD_VIA_REGEX(CatalogController::getMine, "/api/users/me/books/(" SWAPCYCLE_UUID_RE ")", drogon::Get,
+                         "AuthFilter");
     ADD_METHOD_VIA_REGEX(CatalogController::get, "/api/books/(" SWAPCYCLE_UUID_RE ")", drogon::Get);
     ADD_METHOD_VIA_REGEX(CatalogController::update, "/api/books/(" SWAPCYCLE_UUID_RE ")", drogon::Patch,
                          "AuthFilter");
@@ -41,6 +43,7 @@ public:
 
     drogon::Task<drogon::HttpResponsePtr> create(drogon::HttpRequestPtr req);
     drogon::Task<drogon::HttpResponsePtr> listMine(drogon::HttpRequestPtr req);
+    drogon::Task<drogon::HttpResponsePtr> getMine(drogon::HttpRequestPtr req, std::string copyId);
     drogon::Task<drogon::HttpResponsePtr> get(drogon::HttpRequestPtr req, std::string copyId);
     drogon::Task<drogon::HttpResponsePtr> update(drogon::HttpRequestPtr req, std::string copyId);
     drogon::Task<drogon::HttpResponsePtr> remove(drogon::HttpRequestPtr req, std::string copyId);
