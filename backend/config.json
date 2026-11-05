@@ -1,0 +1,39 @@
+{
+  // Drogon settings that are not secret. Secrets and per-environment values
+  // (DATABASE_URL, SESSION_SECRET, PORT, FRONTEND_ORIGIN, ...) come from the
+  // environment; see .env.example. Loaded by main.cc (override with DROGON_CONFIG).
+  "app": {
+    "number_of_threads": 0,
+
+    // The API serves no static files. Point the document root at an empty
+    // directory and allow no file types, so nothing on disk is ever served
+    // directly (uploads are served only through authorised API routes).
+    "document_root": "./static",
+    "file_types": [],
+    "home_page": "",
+    "use_implicit_page": false,
+
+    // Drogon's temporary upload folder, outside the source tree.
+    "upload_path": "/tmp/swapcycle-drogon-uploads",
+
+    // One 5 MB photo plus multipart overhead; matches CatalogLimits.
+    "client_max_body_size": "6M",
+    "client_max_memory_body_size": "6M",
+    "client_max_websocket_message_size": "64K",
+
+    // Sessions are signed cookies issued by the accounts module, not Drogon sessions.
+    "enable_session": false,
+    "enable_server_header": false,
+    "server_header_field": "",
+    "use_gzip": true,
+    "idle_connection_timeout": 60,
+    "keepalive_requests": 1000,
+    "pipelining_requests": 0,
+
+    "log": {
+      "log_path": "",
+      "log_level": "INFO",
+      "display_local_time": false
+    }
+  }
+}

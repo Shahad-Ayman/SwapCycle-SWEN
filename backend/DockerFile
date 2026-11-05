@@ -1,20 +1,57 @@
-# Development image for the SwapCycle backend (Drogon + libsodium + GoogleTest).
-FROM drogonframework/drogon:latest
+# SwapCycle backend image.
+#
+#   docker build -f DockerFile -t swapcycle-backend .          # build, run tests, package
+#   docker build -f DockerFile --target build -t sc-build .    # stop after build + tests
+#   docker build -f DockerFile --build-arg RUN_TESTS=OFF .     # skip tests (not for CI)
+#   --build-arg WARNINGS_AS_ERRORS=ON                          # what CI uses
+#
+# Base images are pinned by digest so every teammate and CI builds the same thing.
+
+ARG DROGON_IMAGE=drogonframework/drogon@sha256:072ab8c05156d5b6701dc928c4b7e8cfabea16af5fc7f91541f9766c4c1b8614
+ARG RUNTIME_IMAGE=ubuntu@sha256:076e7bf82319619f28dd0aa9c02ab34b055ad37100395b4f49a2ffba04fb5e11
+
+# ---- build: compile and run the GoogleTest suite ----------------------------
+FROM ${DROGON_IMAGE} AS build
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libsodium-dev libgtest-dev pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 ENV CXX=g++-11
-WORKDIR /app
-COPY . .
-RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$(nproc)"
+WORKDIR /src
+COPY CMakeLists.txt ./
+COPY src ./src
+COPY tests ./tests
 
-# Run as an unprivileged user; uploads live outside the source tree.
-RUN useradd --system --create-home swapcycle \
-    && mkdir -p /var/lib/swapcycle/uploads \
+ARG BUILD_TYPE=Release
+ARG RUN_TESTS=ON
+ARG WARNINGS_AS_ERRORS=OFF
+RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DSWAPCYCLE_BUILD_TESTS=${RUN_TESTS} \
+        -DSWAPCYCLE_WARNINGS_AS_ERRORS=${WARNINGS_AS_ERRORS} \
+    && cmake --build build -j"$(nproc)"
+RUN if [ "${RUN_TESTS}" = "ON" ]; then ./build/swapcycle_tests --gtest_brief=1; fi
+
+# ---- runtime: only the binary and the shared libraries it links -------------
+# Same Ubuntu release as the Drogon image, so library versions match.
+FROM ${RUNTIME_IMAGE} AS runtime
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates libc-ares2 libhiredis0.14 libjsoncpp25 libmariadb3 libpq5 \
+        libsodium23 libsqlite3-0 libssl3 libuuid1 zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+
+# Unprivileged user; uploads live outside the application directory, and
+# ./static stays empty because the API serves no static files.
+RUN useradd --system --no-create-home --shell /usr/sbin/nologin swapcycle \
+    && mkdir -p /app/static /var/lib/swapcycle/uploads \
     && chown -R swapcycle /var/lib/swapcycle
-USER swapcycle
 
+WORKDIR /app
+COPY --from=build /src/build/swapcycle /app/swapcycle
+COPY config.json /app/config.json
+
+USER swapcycle
+ENV UPLOAD_DIR=/var/lib/swapcycle/uploads
 EXPOSE 8080
-CMD ["./build/swapcycle"]
+CMD ["/app/swapcycle"]
