@@ -4,8 +4,23 @@ project(swapcycle LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)  # For editors and clang-tidy.
+
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
+endif()
+
+option(SWAPCYCLE_BUILD_TESTS "Build the GoogleTest suite" ON)
+option(SWAPCYCLE_WARNINGS_AS_ERRORS "Treat compiler warnings as errors (used by CI)" OFF)
+
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  add_compile_options(-fcoroutines -Wall -Wextra)
+  add_compile_options(-fcoroutines)
+endif()
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  add_compile_options(-Wall -Wextra)
+  if(SWAPCYCLE_WARNINGS_AS_ERRORS)
+    add_compile_options(-Werror)
+  endif()
 endif()
 
 find_package(Drogon CONFIG REQUIRED)
@@ -25,7 +40,6 @@ target_link_libraries(swapcycle_core PUBLIC Drogon::Drogon PkgConfig::SODIUM)
 add_executable(swapcycle src/main.cc)
 target_link_libraries(swapcycle PRIVATE swapcycle_core)
 
-option(SWAPCYCLE_BUILD_TESTS "Build the GoogleTest suite" ON)
 if(SWAPCYCLE_BUILD_TESTS)
   enable_testing()
   find_package(GTest REQUIRED)

@@ -5,6 +5,7 @@
 #include <drogon/drogon.h>
 
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -97,19 +98,19 @@ int main() {
         std::make_shared<wishlist_search::PostgresWishlistSearchRepository>(db), catalogService);
 
     auto& app = drogon::app();
+    const auto configPath = env("DROGON_CONFIG", "config.json");
+    if (std::filesystem::exists(configPath)) {
+        app.loadConfigFile(configPath);
+    } else {
+        std::cerr << "Config file " << configPath << " not found; using Drogon defaults\n";
+    }
     app.registerController(std::make_shared<accounts::AccountController>(accountService, cookie));
     app.registerController(std::make_shared<catalog::CatalogController>(catalogService));
     app.registerController(std::make_shared<wishlist_search::WishlistSearchController>(wishlistService));
 
     installHttpPolicy(env("FRONTEND_ORIGIN"));
 
-    constexpr std::size_t kMaxBodyBytes = 6 * 1024 * 1024;  // One 5 MB photo plus multipart overhead.
-    app.setClientMaxBodySize(kMaxBodyBytes)
-        .setClientMaxMemoryBodySize(kMaxBodyBytes)
-        .setServerHeaderField("")
-        .setLogLevel(trantor::Logger::kInfo)
-        .addListener("0.0.0.0", static_cast<uint16_t>(std::stoi(env("PORT", "8080"))))
-        .setThreadNum(0)
-        .run();
+    // Threads, body-size limits, logging and static-file policy come from config.json.
+    app.addListener("0.0.0.0", static_cast<uint16_t>(std::stoi(env("PORT", "8080")))).run();
     return EXIT_SUCCESS;
 }
