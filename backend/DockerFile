@@ -1,0 +1,20 @@
+# Development image for the SwapCycle backend (Drogon + libsodium + GoogleTest).
+FROM drogonframework/drogon:latest
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libsodium-dev libgtest-dev pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV CXX=g++-11
+WORKDIR /app
+COPY . .
+RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j"$(nproc)"
+
+# Run as an unprivileged user; uploads live outside the source tree.
+RUN useradd --system --create-home swapcycle \
+    && mkdir -p /var/lib/swapcycle/uploads \
+    && chown -R swapcycle /var/lib/swapcycle
+USER swapcycle
+
+EXPOSE 8080
+CMD ["./build/swapcycle"]
