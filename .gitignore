@@ -1,0 +1,16 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Build output
+backend/build/
+frontend/dist/
+frontend/coverage/
+
+# Dependencies
+node_modules/
+
+# Uploaded files never belong in git
+backend/src/uploads/
+uploads/
