@@ -1,2 +1,21 @@
-// API calls for wishlist. Types come from ../types.
-export {};
+// Wish list: specific titles or broader interests.
+import { api, seg } from './client';
+import type { WishItem, WishItemInput } from './types';
+
+/** Your wish list, newest first. */
+export function listWishItems(signal?: AbortSignal): Promise<WishItem[]> {
+  return api.get<WishItem[]>('/wishlist', { signal });
+}
+
+/**
+ * Add a title (kind TITLE) or a broader interest (kind INTEREST).
+ * The server enforces the 100-entry limit and rejects duplicates with 409.
+ */
+export function addWishItem(input: WishItemInput, signal?: AbortSignal): Promise<WishItem> {
+  return api.post<WishItem>('/wishlist', { body: input, signal });
+}
+
+/** Remove one of your wish list entries. */
+export function removeWishItem(wishItemId: string, signal?: AbortSignal): Promise<void> {
+  return api.delete<void>(`/wishlist/${seg(wishItemId)}`, { signal });
+}
